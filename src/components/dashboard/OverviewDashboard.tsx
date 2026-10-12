@@ -24,8 +24,6 @@ export const OverviewDashboard: React.FC = () => {
     checkAccountsSpambot,
     pauseTask,
     resumeTask,
-    operatingMode,
-    clearDemoDataAndEnableLive,
   } = useCombiner();
 
   const totalAccounts = accounts.length;
@@ -40,28 +38,7 @@ export const OverviewDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Operating Mode Banner */}
-      {operatingMode === 'simulation' ? (
-        <div className="p-4 bg-gradient-to-r from-amber-950/70 via-neutral-900 to-amber-950/70 border border-amber-800/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
-          <div className="flex items-center gap-3">
-            <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-            <div>
-              <div className="text-xs font-semibold text-white">
-                Увімкнено демонстраційний режим (Симуляція)
-              </div>
-              <div className="text-[11px] text-amber-200/80 mt-0.5">
-                Зараз відображаються тестові демо-дані. Натисніть кнопку поруч, щоб очистити демо та перейти у реальний режим (LIVE MTProto) для роботи зі своїми акаунтами!
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={clearDemoDataAndEnableLive}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 shadow-sm"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Очистити демо та увімкнути LIVE</span>
-          </button>
-        </div>
-      ) : totalAccounts === 0 ? (
+      {totalAccounts === 0 ? (
         <div className="p-4 bg-neutral-900 border border-sky-800/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center gap-3">
             <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
@@ -70,7 +47,7 @@ export const OverviewDashboard: React.FC = () => {
                 🟢 Режим реальної роботи (LIVE MTProto) активний
               </div>
               <div className="text-[11px] text-neutral-300 mt-0.5">
-                База готова для вашого власного використання. Додайте власні акаунти (.session або TData) для початку реального парсингу, розсилки та інвайту.
+                База готова для вашого власного використання. Додайте власні акаунти (.session + .json або ZIP) для початку реального парсингу, розсилки та дзвінків.
               </div>
             </div>
           </div>

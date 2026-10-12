@@ -107,6 +107,7 @@ else
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
     apt-get install -y -qq nodejs
   fi
+  npm config set legacy-peer-deps true > /dev/null 2>&1 || true
   npm install --production=false
   npm run build
   npm install -g pm2 > /dev/null 2>&1 || true

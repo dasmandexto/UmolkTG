@@ -29,6 +29,8 @@ export interface TelegramAccount {
   appVersion: string;
   dcId: number;
   unreadDialogs: number;
+  sessionFileName?: string;
+  sessionString?: string;
   notes?: string;
   selected?: boolean;
 }

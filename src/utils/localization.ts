@@ -31,7 +31,7 @@ export const translations = {
     liveSpeed: 'Скорость',
     quickStart: 'Быстрый запуск',
     emergencyStop: 'Экстренная остановка',
-    simulatingRunning: 'Симуляция активна',
+    simulatingRunning: 'LIVE Движок активен',
     simulatingPaused: 'Пауза',
 
     // Dashboard
@@ -407,7 +407,7 @@ export const translations = {
     liveSpeed: 'Швидкість',
     quickStart: 'Швидкий пуск',
     emergencyStop: 'Екстрена зупинка',
-    simulatingRunning: 'Симуляція активна',
+    simulatingRunning: 'LIVE Двигун активний',
     simulatingPaused: 'Пауза',
 
     // Dashboard

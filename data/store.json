@@ -1,0 +1,50 @@
+{
+  "operatingMode": "live",
+  "accounts": [
+    {
+      "id": "acc-sms-1791822683189",
+      "phone": "+7 902 411-90-28",
+      "username": "user_95565",
+      "firstName": "Игорь",
+      "lastName": "Волков",
+      "status": "warming",
+      "format": "session_json",
+      "geo": "RU",
+      "countryCode": "ru",
+      "twoFa": true,
+      "twoFaPassword": "••••••••",
+      "daysAlive": 0,
+      "channelsJoined": 1,
+      "messagesSent": 0,
+      "lastChecked": "Только что",
+      "spambotStatus": "free",
+      "avatarSeed": "igor",
+      "deviceModel": "Telegram Android 10.14.2 / Samsung S24",
+      "appVersion": "10.14.2",
+      "dcId": 2,
+      "unreadDialogs": 0,
+      "notes": "Свежий авторег через SMS-Activate. Требуется прогрев."
+    }
+  ],
+  "proxies": [],
+  "tasks": [],
+  "settings": {
+    "apiId": "2040",
+    "apiHash": "b18441a1ff607e10a989891a5462e627",
+    "smsApiKey": "",
+    "smsService": "sms-activate",
+    "maxDmsPerAccount": 35,
+    "delayBetweenActions": 25,
+    "floodWaitCooldown": 300,
+    "autoRotateProxy": true
+  },
+  "logs": [
+    {
+      "id": "clear-1791822650515",
+      "timestamp": "4:30:50 PM",
+      "level": "warn",
+      "module": "system",
+      "message": "Демо-базу очищено. Увімкнено чистий режим для власних акаунтів (LIVE MTProto)."
+    }
+  ]
+}

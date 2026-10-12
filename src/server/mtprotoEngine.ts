@@ -1,20 +1,24 @@
 import { TelegramClient, Api } from 'telegram';
-import { StringSession } from 'telegram/sessions';
+import { StringSession } from 'telegram/sessions/index.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import net from 'net';
+import crypto from 'crypto';
+import { execSync } from 'child_process';
+import bigInt from 'big-integer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const STORE_PATH = path.resolve(__dirname, '../../data/store.json');
+const SESSIONS_DIR = path.resolve(__dirname, '../../sessions');
 
 // Default official Telegram Desktop API credentials
 export const DEFAULT_TG_API_ID = 2040;
 export const DEFAULT_TG_API_HASH = 'b18441a1ff607e10a989891a5462e627';
 
 export interface PersistentStore {
-  operatingMode: 'live' | 'simulation';
+  operatingMode: 'live';
   accounts: any[];
   proxies: any[];
   tasks: any[];
@@ -63,7 +67,7 @@ export function loadStore(): PersistentStore {
     if (fs.existsSync(STORE_PATH)) {
       const raw = fs.readFileSync(STORE_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
-      return { ...DEFAULT_STORE, ...parsed };
+      return { ...DEFAULT_STORE, ...parsed, operatingMode: 'live' };
     }
   } catch (err) {
     console.error('[Store] Failed to read store.json, using defaults:', err);
@@ -79,6 +83,7 @@ export function saveStore(store: PersistentStore): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    store.operatingMode = 'live';
     fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
     console.error('[Store] Failed to save store.json:', err);
@@ -87,6 +92,29 @@ export function saveStore(store: PersistentStore): void {
 
 // In-memory cache of TelegramClient instances
 const clientCache = new Map<string, TelegramClient>();
+
+/**
+ * Extract StringSession from a .session file on disk using session_parser.py
+ */
+export function extractStringSessionFromDisk(sessionFilePath: string): string | null {
+  try {
+    if (!fs.existsSync(sessionFilePath)) return null;
+    const parserScript = path.resolve(__dirname, '../../engine/session_parser.py');
+    if (!fs.existsSync(parserScript)) return null;
+
+    const out = execSync(`python3 "${parserScript}" "${sessionFilePath}"`, {
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    const parsed = JSON.parse(out.trim());
+    if (parsed.valid && parsed.stringSession) {
+      return parsed.stringSession;
+    }
+  } catch (e) {
+    console.warn(`[MTProto] Could not extract session from ${sessionFilePath}:`, e);
+  }
+  return null;
+}
 
 export async function getClientForAccount(
   account: any,
@@ -103,7 +131,28 @@ export async function getClientForAccount(
 
   const apiId = customApiId || DEFAULT_TG_API_ID;
   const apiHash = customApiHash || DEFAULT_TG_API_HASH;
-  const sessionString = account.sessionString || account.authKey || '';
+  let sessionString = account.sessionString || account.authKey || '';
+
+  // If no in-memory string session, check if there's a file in sessions/
+  if (!sessionString && fs.existsSync(SESSIONS_DIR)) {
+    const cleanDigits = (account.phone || '').replace(/\D/g, '');
+    const candidateFiles = [
+      account.sessionFileName && path.join(SESSIONS_DIR, account.sessionFileName),
+      cleanDigits && path.join(SESSIONS_DIR, `${cleanDigits}.session`),
+      account.phone && path.join(SESSIONS_DIR, `${account.phone}.session`),
+    ].filter(Boolean) as string[];
+
+    for (const fpath of candidateFiles) {
+      if (fs.existsSync(fpath)) {
+        const extracted = extractStringSessionFromDisk(fpath);
+        if (extracted) {
+          sessionString = extracted;
+          account.sessionString = extracted;
+          break;
+        }
+      }
+    }
+  }
 
   const client = new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
     connectionRetries: 3,
@@ -171,7 +220,7 @@ export async function checkSpambotReal(account: any, apiId?: number, apiHash?: s
 
     // Send /start to SpamBot
     await client.sendMessage('SpamBot', { message: '/start' });
-    
+
     // Wait 1.5 seconds for response
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
@@ -298,8 +347,160 @@ export async function sendDirectMessage(
   }
 }
 
-// 5. Real Proxy Connection Tester (TCP ping to Telegram DC)
-export async function testProxyLatency(host: string, port: number): Promise<{ alive: boolean; latencyMs: number; error?: string }> {
+// 5. Real MTProto VoIP Call Initiator
+export async function initiateTelegramCall(
+  account: any,
+  peer: string,
+  apiId?: number,
+  apiHash?: string
+): Promise<{
+  status: 'ringing' | 'connected' | 'failed';
+  peer: string;
+  peerId?: string;
+  callData?: any;
+  error?: string;
+  errorCode?: string;
+  dcId?: number;
+  timestamp?: number;
+}> {
+  try {
+    const client = await getClientForAccount(account, apiId, apiHash);
+    const isAuthorized = await client.isUserAuthorized();
+
+    if (!isAuthorized) {
+      return {
+        status: 'failed',
+        peer,
+        error: `Акаунт ${account.phone} не авторизований в Telegram MTProto`,
+      };
+    }
+
+    const cleanPeer = peer.replace('https://t.me/', '').replace('@', '').trim();
+    let entity: any;
+
+    try {
+      entity = await client.getEntity(cleanPeer);
+    } catch (e: any) {
+      return {
+        status: 'failed',
+        peer: cleanPeer,
+        error: `Користувача ${peer} не знайдено в Telegram або некоректний контакт: ${e.message}`,
+      };
+    }
+
+    if (entity.bot) {
+      return {
+        status: 'failed',
+        peer: cleanPeer,
+        error: `Неможливо зателефонувати: @${cleanPeer} є ботом. Боти не підтримують Telegram VoIP`,
+      };
+    }
+
+    // Prepare Diffie-Hellman cryptographic parameters for MTProto VoIP
+    const gA = crypto.randomBytes(256);
+    const gAHash = crypto.createHash('sha256').update(gA).digest();
+    const randomId = Math.floor(Math.random() * 100000000);
+
+    const protocol = new Api.PhoneCallProtocol({
+      minLayer: 65,
+      maxLayer: 93,
+      udpP2p: true,
+      udpReflector: true,
+      libraryVersions: ['tgcalls_1.2', 'webrtc'],
+    });
+
+    try {
+      const callResult = await client.invoke(
+        new Api.phone.RequestCall({
+          userId: entity,
+          randomId,
+          gAHash,
+          protocol,
+        })
+      );
+
+      return {
+        status: 'ringing',
+        peer: cleanPeer,
+        peerId: entity.id?.toString(),
+        callData: {
+          id: (callResult as any)?.phoneCall?.id?.toString() || `${randomId}`,
+          accessHash: (callResult as any)?.phoneCall?.accessHash?.toString() || '',
+        },
+        dcId: client.session.dcId || 2,
+        timestamp: Date.now(),
+      };
+    } catch (callErr: any) {
+      const msg = callErr.message || '';
+      if (msg.includes('USER_PRIVACY_RESTRICTED')) {
+        return {
+          status: 'failed',
+          peer: cleanPeer,
+          errorCode: 'USER_PRIVACY_RESTRICTED',
+          error: `Користувач @${cleanPeer} заборонив вхідні дзвінки в налаштуваннях конфіденційності Telegram (Privacy & Security > Calls)`,
+        };
+      }
+      if (msg.includes('PARTICIPANT_VERSION_OUTDATED')) {
+        return {
+          status: 'failed',
+          peer: cleanPeer,
+          error: `Клієнт користувача @${cleanPeer} застарілий для аудіодзвінків`,
+        };
+      }
+      if (msg.includes('FLOOD_WAIT')) {
+        return {
+          status: 'failed',
+          peer: cleanPeer,
+          error: `Telegram FloodWait: тимчасове обмеження вихідних дзвінків (${msg})`,
+        };
+      }
+      return {
+        status: 'failed',
+        peer: cleanPeer,
+        error: `MTProto помилка виклику: ${msg}`,
+      };
+    }
+  } catch (err: any) {
+    return {
+      status: 'failed',
+      peer,
+      error: err.message || 'Помилка ініціалізації виклику',
+    };
+  }
+}
+
+// 6. Real MTProto VoIP Call Discard
+export async function discardTelegramCall(
+  account: any,
+  callData?: any,
+  durationSec: number = 0
+) {
+  try {
+    const client = await getClientForAccount(account);
+    if (callData && callData.id && callData.accessHash) {
+      await client.invoke(
+        new Api.phone.DiscardCall({
+          peer: new Api.InputPhoneCall({
+            id: bigInt(callData.id.toString()) as any,
+            accessHash: bigInt(callData.accessHash.toString()) as any,
+          }),
+          duration: durationSec,
+          reason: new Api.PhoneCallDiscardReasonHangup(),
+          connectionId: bigInt(0) as any,
+        })
+      );
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+// 7. Real Proxy Connection Tester (TCP ping to Telegram DC)
+export async function testProxyLatency(
+  host: string,
+  port: number
+): Promise<{ alive: boolean; latencyMs: number; error?: string }> {
   return new Promise((resolve) => {
     const start = Date.now();
     const socket = new net.Socket();

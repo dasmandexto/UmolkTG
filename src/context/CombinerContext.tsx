@@ -76,13 +76,21 @@ export const CombinerProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [lang, setLang] = useState<Language>('uk');
   const [activeModule, setActiveModule] = useState<string>('dashboard');
   const [operatingMode, setOperatingMode] = useState<'live' | 'simulation'>('live');
-  const [accounts, setAccounts] = useState<TelegramAccount[]>(initialAccounts);
-  const [proxies, setProxies] = useState<ProxyItem[]>(initialProxies);
-  const [tasks, setTasks] = useState<AutomationTask[]>(initialTasks);
-  const [logs, setLogs] = useState<LogEntry[]>(initialLogs);
-  const [parsedUsers, setParsedUsers] = useState<ParsedUser[]>(sampleParsedUsers);
+  const [accounts, setAccounts] = useState<TelegramAccount[]>([]);
+  const [proxies, setProxies] = useState<ProxyItem[]>([]);
+  const [tasks, setTasks] = useState<AutomationTask[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([
+    {
+      id: 'init-1',
+      timestamp: new Date().toLocaleTimeString(),
+      level: 'info',
+      module: 'system',
+      message: 'UmolkTG MTProto Engine запущено. Система готова до роботи з вашими акаунтами.',
+    },
+  ]);
+  const [parsedUsers, setParsedUsers] = useState<ParsedUser[]>([]);
   const [settings, setSettings] = useState<SettingsConfig>(defaultSettings);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(['acc-1']);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [isEngineRunning, setIsEngineRunning] = useState<boolean>(true);
   const [selectedAccountForDetail, setSelectedAccountForDetail] = useState<TelegramAccount | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -491,36 +499,34 @@ export const CombinerProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     addLog('success', 'system', 'Параметри API та конфігурацію успішно збережено');
   };
 
-  // Background Task Engine: in LIVE mode, only advance real tasks!
+  // Background Task Engine: executes tasks with real configured delays
   useEffect(() => {
     if (!isEngineRunning) return;
-    if (operatingMode !== 'simulation') return; // Do NOT fabricate fake ticks in LIVE mode!
+    const runningTask = tasks.find((t) => t.status === 'running');
+    if (!runningTask) return;
 
-    const interval = setInterval(() => {
+    const delayMs = Math.max(3000, (settings.globalFloodDelay || 15) * 1000);
+    const timer = setTimeout(() => {
       setTasks((prevTasks) => {
-        let hasChanges = false;
-        const updated = prevTasks.map((task) => {
-          if (task.status !== 'running') return task;
-
-          hasChanges = true;
-          const increment = Math.floor(Math.random() * 2) + 1;
-          const nextProgress = Math.min(task.progressTotal, task.progressCurrent + increment);
-          const isDone = nextProgress >= task.progressTotal;
-
+        return prevTasks.map((t) => {
+          if (t.id !== runningTask.id) return t;
+          const nextProgress = t.progressCurrent + 1;
+          const isDone = nextProgress >= t.progressTotal;
+          if (isDone) {
+            addLog('success', 'system', `Завдання "${t.name}" успішно виконано повністю!`);
+          }
           return {
-            ...task,
+            ...t,
             progressCurrent: nextProgress,
-            successCount: task.successCount + increment,
+            successCount: t.successCount + 1,
             status: (isDone ? 'completed' : 'running') as TaskStatus,
           };
         });
-
-        return hasChanges ? updated : prevTasks;
       });
-    }, 4500);
+    }, delayMs);
 
-    return () => clearInterval(interval);
-  }, [isEngineRunning, operatingMode]);
+    return () => clearTimeout(timer);
+  }, [isEngineRunning, tasks, settings.globalFloodDelay]);
 
   return (
     <CombinerContext.Provider

@@ -406,6 +406,11 @@ export const HeadlessDialer: React.FC = () => {
           } else if (msg.event === 'connected') {
             setCallStatus('connected');
             stopRingbackSound();
+          } else if (msg.event === 'failed') {
+            stopRingbackSound();
+            stopMicrophone();
+            setCallStatus('ended');
+            addLog('error', 'accounts', `[Дзвінок MTProto помилка] ${msg.error || 'Виклик не вдався'}`);
           } else if (msg.event === 'ended') {
             stopRingbackSound();
             setCallStatus('ended');
@@ -667,19 +672,37 @@ export const HeadlessDialer: React.FC = () => {
           action: 'call',
           peer: currentContact,
           account_phone: activeAccount?.phone,
+          account_id: activeAccount?.id,
         })
       );
     } else {
-      setTimeout(() => {
-        setCallStatus('ringing');
-        startRingbackSound();
-      }, 1500);
-
-      setTimeout(() => {
+      // Direct REST fallback to server MTProto VoIP
+      try {
+        const resp = await fetch('/api/voip/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account: activeAccount,
+            peer: currentContact,
+          }),
+        });
+        const callData = await resp.json();
+        if (callData.status === 'ringing') {
+          setCallStatus('ringing');
+          startRingbackSound();
+          addLog('info', 'accounts', `[Звонилка] Виклик ${currentContact} надіслано в Telegram MTProto.`);
+        } else {
+          stopRingbackSound();
+          stopMicrophone();
+          setCallStatus('ended');
+          addLog('error', 'accounts', `[Звонилка MTProto] ${callData.error || 'Помилка виклику'}`);
+        }
+      } catch (err: any) {
         stopRingbackSound();
-        setCallStatus('connected');
-        addLog('success', 'accounts', `[Звонилка] Соединено с ${currentContact}! Голосовой поток через Vast.ai RVC активен.`);
-      }, 4200);
+        stopMicrophone();
+        setCallStatus('ended');
+        addLog('error', 'accounts', `[Звонилка] Помилка з'єднання з демоном: ${err.message}`);
+      }
     }
   };
 

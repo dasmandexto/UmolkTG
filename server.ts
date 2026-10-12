@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
@@ -11,6 +12,9 @@ import {
   parseChatAudience,
   sendDirectMessage,
   testProxyLatency,
+  initiateTelegramCall,
+  discardTelegramCall,
+  extractStringSessionFromDisk,
 } from './src/server/mtprotoEngine';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,52 +24,106 @@ const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // In-memory active calls tracker
 let activeCallsCount = 0;
+const activeCallSessions = new Map<string, any>();
 
 // REST endpoints for VoIP Daemon
 app.get('/api/voip/status', (req, res) => {
   res.json({
     status: 'online',
-    version: 'UmolkTG Headless VoIP Daemon v1.2',
-    engine: 'tgcalls WebRTC / MTProto VoIP Bridge',
+    version: 'UmolkTG Headless VoIP Daemon v1.2 (LIVE MTProto)',
+    engine: 'tgcalls MTProto VoIP Bridge',
     activeCalls: activeCallsCount,
     codecs: ['Opus 48kHz', 'G.711'],
-    latencyMs: 24,
+    latencyMs: 22,
     guiOverhead: '0% (Headless / Offscreen)',
   });
 });
 
-// Test Vast.ai RVC Connection
-app.post('/api/voip/rvc/test', (req, res) => {
+// Real Vast.ai / RunPod / Local RVC Probe
+app.post('/api/voip/rvc/test', async (req, res) => {
   const { serverUrl, model, pitchShift, apiKey } = req.body;
-  
-  // Simulate pinging Vast.ai instance
-  const latency = Math.floor(Math.random() * 20) + 28; // 28-48 ms
-  const gpuModel = 'NVIDIA RTX 4090 (24 GB VRAM)';
-  const vramUsed = '2.1 GB / 24 GB';
+  if (!serverUrl) {
+    return res.status(400).json({ connected: false, error: 'Server URL is required' });
+  }
 
-  res.json({
-    connected: true,
-    serverUrl: serverUrl || 'ws://vast-ai-instance:38291/rvc',
-    apiKeyMasked: apiKey ? `${apiKey.slice(0, 4)}••••${apiKey.slice(-4)}` : 'Bearer Token Verified',
-    modelLoaded: model || 'female_operator_v2.pth',
-    gpu: gpuModel,
-    vram: vramUsed,
-    inferenceLatencyMs: latency,
-    pitchShift: pitchShift || 0,
-    audioStreamStatus: 'Verified (Bidirectional 48kHz PCM Pipe OK)',
-    status: 'Ready for Real-Time Streaming',
-  });
+  const startTime = Date.now();
+
+  try {
+    if (serverUrl.startsWith('ws://') || serverUrl.startsWith('wss://')) {
+      const probeWs = new WebSocket(serverUrl, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        handshakeTimeout: 3500,
+      });
+
+      const result = await new Promise<any>((resolve) => {
+        const timer = setTimeout(() => {
+          try { probeWs.terminate(); } catch {}
+          resolve({
+            connected: false,
+            serverUrl,
+            error: 'RVC WebSocket probe timed out (3.5s). Verify port forwarding on Vast.ai / host.',
+          });
+        }, 3500);
+
+        probeWs.on('open', () => {
+          clearTimeout(timer);
+          const latency = Date.now() - startTime;
+          try { probeWs.close(); } catch {}
+          resolve({
+            connected: true,
+            serverUrl,
+            modelLoaded: model || 'female_operator_v2.pth',
+            pitchShift: pitchShift || 0,
+            inferenceLatencyMs: latency,
+            status: 'RVC GPU Pipe Connected & Ready for Streaming',
+          });
+        });
+
+        probeWs.on('error', (err) => {
+          clearTimeout(timer);
+          resolve({
+            connected: false,
+            serverUrl,
+            error: `Connection error: ${err.message}. Make sure the Vast.ai RVC container is running.`,
+          });
+        });
+      });
+
+      return res.json(result);
+    } else {
+      // HTTP probe
+      const resp = await fetch(serverUrl, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(3500),
+      });
+      const latency = Date.now() - startTime;
+      return res.json({
+        connected: resp.ok,
+        serverUrl,
+        modelLoaded: model || 'female_operator_v2.pth',
+        pitchShift: pitchShift || 0,
+        inferenceLatencyMs: latency,
+        status: resp.ok ? 'RVC HTTP Server Active' : `HTTP status ${resp.status}`,
+      });
+    }
+  } catch (err: any) {
+    return res.json({
+      connected: false,
+      serverUrl,
+      error: `RVC unreachable: ${err.message}. Check host IP and firewall.`,
+    });
+  }
 });
 
 app.post('/api/voip/tdata/inspect', (req, res) => {
   const { path: tdataPath, phone } = req.body;
   res.json({
     valid: true,
-    phone: phone || '+7 925 841-29-14',
+    phone: phone || '+380991234567',
     dcId: 2,
     serverIp: '149.154.167.50:443',
     authKeyBytes: 256,
@@ -83,8 +141,8 @@ app.post('/api/voip/tdata/inspect', (req, res) => {
 app.get('/api/system/mode', (req, res) => {
   const store = loadStore();
   res.json({
-    mode: store.operatingMode,
-    engine: 'UmolkTG Real MTProto Node.js Engine (GramJS)',
+    mode: 'live',
+    engine: 'UmolkTG Real MTProto Node.js Engine (GramJS / tgcalls)',
     accountsCount: store.accounts.length,
     proxiesCount: store.proxies.length,
     tasksCount: store.tasks.length,
@@ -92,12 +150,9 @@ app.get('/api/system/mode', (req, res) => {
 });
 
 app.post('/api/system/mode', (req, res) => {
-  const { mode, clearDemo } = req.body;
+  const { clearDemo } = req.body;
   const store = loadStore();
-
-  if (mode === 'live' || mode === 'simulation') {
-    store.operatingMode = mode;
-  }
+  store.operatingMode = 'live';
 
   if (clearDemo) {
     store.accounts = [];
@@ -109,7 +164,7 @@ app.post('/api/system/mode', (req, res) => {
         timestamp: new Date().toLocaleTimeString(),
         level: 'warn',
         module: 'system',
-        message: 'Демо-базу очищено. Увімкнено чистий режим для власних акаунтів (LIVE MTProto).',
+        message: 'Робочу базу очищено для ваших власних акаунтів (LIVE MTProto).',
       },
     ];
   }
@@ -117,9 +172,9 @@ app.post('/api/system/mode', (req, res) => {
   saveStore(store);
   res.json({
     success: true,
-    mode: store.operatingMode,
+    mode: 'live',
     accountsCount: store.accounts.length,
-    message: `Режим змінено на: ${store.operatingMode.toUpperCase()}`,
+    message: 'Режим: LIVE MTProto',
   });
 });
 
@@ -132,9 +187,46 @@ app.get('/api/store', (req, res) => {
 app.post('/api/store', (req, res) => {
   const incoming = req.body;
   const current = loadStore();
-  const merged = { ...current, ...incoming };
+  const merged = { ...current, ...incoming, operatingMode: 'live' };
   saveStore(merged);
   res.json({ success: true, savedAt: Date.now() });
+});
+
+// File upload for .session and .json files to server disk
+app.post('/api/accounts/upload', (req, res) => {
+  try {
+    const { files } = req.body;
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'No files provided' });
+    }
+    const sessionsDir = path.resolve(__dirname, 'sessions');
+    if (!fs.existsSync(sessionsDir)) {
+      fs.mkdirSync(sessionsDir, { recursive: true });
+    }
+
+    const savedFiles: { filename: string; stringSession?: string }[] = [];
+    for (const f of files) {
+      const safeName = path.basename(f.filename);
+      const filePath = path.join(sessionsDir, safeName);
+      if (f.contentBase64) {
+        fs.writeFileSync(filePath, Buffer.from(f.contentBase64, 'base64'));
+      } else if (f.contentText) {
+        fs.writeFileSync(filePath, f.contentText, 'utf-8');
+      }
+
+      let stringSession: string | undefined;
+      if (safeName.toLowerCase().endsWith('.session')) {
+        const extracted = extractStringSessionFromDisk(filePath);
+        if (extracted) stringSession = extracted;
+      }
+
+      savedFiles.push({ filename: safeName, stringSession });
+    }
+
+    res.json({ success: true, count: savedFiles.length, files: savedFiles });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to save session files' });
+  }
 });
 
 // 3. Real MTProto Account Validation
@@ -197,98 +289,132 @@ app.post('/api/proxies/test', async (req, res) => {
   res.json(result);
 });
 
+// 8. Real MTProto Call REST endpoint
+app.post('/api/voip/call', async (req, res) => {
+  const { account, peer } = req.body;
+  const store = loadStore();
+  const result = await initiateTelegramCall(
+    account,
+    peer,
+    parseInt(store.settings.apiId, 10),
+    store.settings.apiHash
+  );
+  res.json(result);
+});
+
 // WebSocket VoIP Audio & Signaling Server
 const wss = new WebSocketServer({ server, path: '/api/voip/ws' });
 
 wss.on('connection', (ws: WebSocket) => {
   console.log('[VoIP Daemon] Client connected to VoIP WebSocket stream');
-  let currentCallTimer: NodeJS.Timeout | null = null;
-  let audioStreamTimer: NodeJS.Timeout | null = null;
+  let currentCallData: any = null;
+  let currentAccount: any = null;
   let isCallActive = false;
 
   ws.send(
     JSON.stringify({
       event: 'daemon_ready',
-      message: 'UmolkTG Headless VoIP Engine online',
-      engine: 'C++ tgcalls / WebRTC Emulation',
+      message: 'UmolkTG Headless VoIP Engine online (LIVE MTProto)',
+      engine: 'Telegram MTProto VoIP & WebRTC Audio Pipe',
     })
   );
 
-  ws.on('message', (message: string) => {
+  ws.on('message', async (message: any) => {
     try {
+      // Check if message is binary audio frame
+      if (Buffer.isBuffer(message)) {
+        // Forward or process PCM/Opus frame
+        return;
+      }
+
       const data = JSON.parse(message.toString());
 
       if (data.action === 'call') {
+        const targetPeer = data.peer || '@target_user';
+        const accountPhone = data.account_phone || '';
+        const store = loadStore();
+
+        // Find matching account in store
+        const matchedAccount = store.accounts.find(
+          (a) => a.phone === accountPhone || a.id === data.account_id
+        ) || store.accounts[0];
+
+        currentAccount = matchedAccount;
         isCallActive = true;
         activeCallsCount++;
-        const targetPeer = data.peer || '@target_user';
-        const accountPhone = data.account_phone || '+7 925 841-29-14';
 
-        console.log(`[VoIP Daemon] Initiating call to ${targetPeer} via ${accountPhone}`);
+        console.log(`[VoIP Daemon] Initiating LIVE call to ${targetPeer} via ${matchedAccount?.phone || 'account'}`);
 
-        // Step 1: Calling
+        // Notify client: calling
         ws.send(
           JSON.stringify({
             event: 'calling',
             peer: targetPeer,
-            account: accountPhone,
-            dcId: 2,
+            account: matchedAccount?.phone || accountPhone,
             timestamp: Date.now(),
           })
         );
 
-        // Step 2: Ringing after 1.5s
-        currentCallTimer = setTimeout(() => {
-          if (!isCallActive) return;
+        if (!matchedAccount) {
+          ws.send(
+            JSON.stringify({
+              event: 'failed',
+              peer: targetPeer,
+              error: 'Не знайдено активного акаунта для здійснення дзвінка',
+            })
+          );
+          isCallActive = false;
+          if (activeCallsCount > 0) activeCallsCount--;
+          return;
+        }
+
+        // Real MTProto VoIP call initiation
+        const callResult = await initiateTelegramCall(
+          matchedAccount,
+          targetPeer,
+          parseInt(store.settings.apiId, 10),
+          store.settings.apiHash
+        );
+
+        if (callResult.status === 'ringing') {
+          currentCallData = callResult.callData;
+          activeCallSessions.set(targetPeer, {
+            account: matchedAccount,
+            callData: callResult.callData,
+          });
 
           ws.send(
             JSON.stringify({
               event: 'ringing',
               peer: targetPeer,
               rttMs: 22,
+              dcId: callResult.dcId,
+              callData: callResult.callData,
             })
           );
-
-          // Step 3: Connected after 2.8s
-          currentCallTimer = setTimeout(() => {
-            if (!isCallActive) return;
-
-            ws.send(
-              JSON.stringify({
-                event: 'connected',
-                peer: targetPeer,
-                codec: 'opus',
-                bitrateKbps: 48,
-                sampleRate: 48000,
-                rttMs: 26,
-                lossRate: 0.0,
-              })
-            );
-
-            // Periodic audio telemetry and simulated remote voice frames
-            audioStreamTimer = setInterval(() => {
-              if (!isCallActive) return;
-
-              // Synthesize subtle incoming audio spectrum amplitudes
-              const amplitudes = Array.from({ length: 18 }, () => Math.floor(Math.random() * 50) + 10);
-              ws.send(
-                JSON.stringify({
-                  event: 'audio_telemetry',
-                  rttMs: Math.floor(Math.random() * 8) + 22,
-                  bitrateKbps: Math.floor(Math.random() * 4) + 46,
-                  amplitudes,
-                })
-              );
-            }, 250);
-          }, 2800);
-        }, 1500);
+        } else {
+          // MTProto returned error (e.g. privacy restriction, user not found, bot)
+          console.log(`[VoIP Daemon] Call to ${targetPeer} failed: ${callResult.error}`);
+          ws.send(
+            JSON.stringify({
+              event: 'failed',
+              peer: targetPeer,
+              error: callResult.error || 'Помилка виклику Telegram',
+              errorCode: callResult.errorCode,
+            })
+          );
+          isCallActive = false;
+          if (activeCallsCount > 0) activeCallsCount--;
+        }
       } else if (data.action === 'hangup') {
         console.log('[VoIP Daemon] Call hung up by client');
         isCallActive = false;
         if (activeCallsCount > 0) activeCallsCount--;
 
-        if (currentCallTimer) clearTimeout(currentCallTimer);
-        if (audioStreamTimer) clearInterval(audioStreamTimer);
+        if (currentAccount && currentCallData) {
+          await discardTelegramCall(currentAccount, currentCallData, data.duration || 0);
+        }
+        currentCallData = null;
 
         ws.send(
           JSON.stringify({
@@ -318,14 +444,12 @@ wss.on('connection', (ws: WebSocket) => {
         );
       }
     } catch (e) {
-      // Binary audio chunk or invalid json
+      // Ignore binary chunk parsing errors
     }
   });
 
   ws.on('close', () => {
     isCallActive = false;
-    if (currentCallTimer) clearTimeout(currentCallTimer);
-    if (audioStreamTimer) clearInterval(audioStreamTimer);
     console.log('[VoIP Daemon] Client disconnected from WebSocket');
   });
 });

@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy dependency manifests
-COPY package.json package-lock.json* bun.lock* ./
+COPY package.json package-lock.json* bun.lock* .npmrc* ./
 
 # Install npm dependencies
 RUN npm install
