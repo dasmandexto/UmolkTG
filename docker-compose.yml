@@ -1,0 +1,34 @@
+services:
+  umolktg-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: umolktg-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - umolktg-data:/app/data
+    networks:
+      - umolktg-net
+
+  umolktg-voip-daemon:
+    build:
+      context: ./cpp-daemon
+      dockerfile: Dockerfile
+    container_name: umolktg-voip-daemon
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    networks:
+      - umolktg-net
+
+networks:
+  umolktg-net:
+    driver: bridge
+
+volumes:
+  umolktg-data:

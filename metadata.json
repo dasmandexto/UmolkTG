@@ -1,0 +1,6 @@
+{
+  "name": "TeleRaptor Telegram Combiner",
+  "description": "Professional Telegram automation suite and combiner for account management, parsing, bulk messaging, inviting, warmup, and proxy orchestration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
