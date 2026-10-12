@@ -310,6 +310,50 @@ wss.on('connection', (ws: WebSocket) => {
   let currentCallData: any = null;
   let currentAccount: any = null;
   let isCallActive = false;
+  let vastWs: WebSocket | null = null;
+
+  function connectToVastAi(config: any) {
+    if (!config || !config.enabled || !config.serverUrl) {
+      if (vastWs) {
+        try { vastWs.close(); } catch {}
+        vastWs = null;
+      }
+      return;
+    }
+
+    try {
+      if (vastWs) {
+        try { vastWs.close(); } catch {}
+      }
+      vastWs = new WebSocket(config.serverUrl, {
+        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      });
+
+      vastWs.on('open', () => {
+        console.log(`[VoIP Daemon] Connected to Vast.ai RVC GPU stream: ${config.serverUrl}`);
+        vastWs?.send(
+          JSON.stringify({
+            action: 'configure',
+            pitch_shift: config.pitchShift || 12,
+            f0_method: config.f0Method || 'rmvpe',
+            model_path: config.selectedModel || config.model,
+          })
+        );
+      });
+
+      vastWs.on('message', (transformedAudio: any) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(transformedAudio);
+        }
+      });
+
+      vastWs.on('error', (err) => {
+        console.warn(`[VoIP Daemon] Vast.ai WebSocket error: ${err.message}`);
+      });
+    } catch (e: any) {
+      console.warn('[VoIP Daemon] Could not connect to Vast.ai:', e.message);
+    }
+  }
 
   ws.send(
     JSON.stringify({
@@ -323,7 +367,9 @@ wss.on('connection', (ws: WebSocket) => {
     try {
       // Check if message is binary audio frame
       if (Buffer.isBuffer(message)) {
-        // Forward or process PCM/Opus frame
+        if (vastWs && vastWs.readyState === WebSocket.OPEN) {
+          vastWs.send(message);
+        }
         return;
       }
 
@@ -433,6 +479,7 @@ wss.on('connection', (ws: WebSocket) => {
       } else if (data.action === 'set_rvc_config') {
         const config = data.config;
         console.log(`[VoIP Daemon] RVC Voice Changer updated: enabled=${config?.enabled}, model=${config?.selectedModel}, pitch=${config?.pitchShift}`);
+        connectToVastAi(config);
         ws.send(
           JSON.stringify({
             event: 'rvc_configured',
@@ -450,6 +497,10 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('close', () => {
     isCallActive = false;
+    if (vastWs) {
+      try { vastWs.close(); } catch {}
+      vastWs = null;
+    }
     console.log('[VoIP Daemon] Client disconnected from WebSocket');
   });
 });
