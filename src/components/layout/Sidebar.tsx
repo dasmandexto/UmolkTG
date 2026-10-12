@@ -201,7 +201,7 @@ export const Sidebar: React.FC = () => {
                     UmolkTG
                   </div>
                   <div className="text-[11px] text-neutral-400">
-                    Мобільна панель керування
+                    {t.mobileNavTitle}
                   </div>
                 </div>
               </div>
@@ -209,7 +209,7 @@ export const Sidebar: React.FC = () => {
               <button
                 onClick={() => setIsMobileDrawerOpen(false)}
                 className="p-2 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-colors"
-                title="Закрити меню"
+                title={t.closeMenu}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -218,7 +218,7 @@ export const Sidebar: React.FC = () => {
             {/* Mobile Nav Links */}
             <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
               <div className="text-[10px] uppercase font-semibold text-neutral-500 px-3 py-1 tracking-wider">
-                Модулі системи
+                {t.systemModules}
               </div>
               {navItems.map((item) => {
                 const Icon = item.icon;
@@ -265,7 +265,7 @@ export const Sidebar: React.FC = () => {
             {/* Mobile Drawer Footer */}
             <div className="p-4 border-t border-neutral-800 text-[11px] text-neutral-400 space-y-1.5 bg-neutral-950/80">
               <div className="flex items-center justify-between">
-                <span>Ядро:</span>
+                <span>{t.engineCore}:</span>
                 <span className="font-mono text-sky-400">UmolkTG v4.2 PRO</span>
               </div>
               <div className="flex items-center justify-between">

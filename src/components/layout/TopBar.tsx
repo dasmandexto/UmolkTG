@@ -72,15 +72,24 @@ export const TopBar: React.FC = () => {
 
       {/* Zone 3: Primary actions & Language toggle */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Language switch */}
-        <button
-          onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')}
-          className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 rounded transition-colors"
-          title="Сменить язык / Switch language"
-        >
-          <Globe className="w-3.5 h-3.5 text-neutral-400" />
-          <span className="font-mono uppercase">{lang}</span>
-        </button>
+        {/* 3-Language segmented switch (RU / UK / EN) */}
+        <div className="flex items-center bg-neutral-800/80 rounded-md p-0.5 border border-neutral-700/50 text-xs">
+          <Globe className="w-3.5 h-3.5 text-neutral-400 ml-1.5 mr-1 shrink-0 hidden sm:inline" />
+          {(['ru', 'uk', 'en'] as const).map((l) => (
+            <button
+              key={l}
+              onClick={() => setLang(l)}
+              className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-semibold uppercase transition-colors ${
+                lang === l
+                  ? 'bg-sky-600 text-white shadow-xs'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title={l === 'ru' ? 'Русский' : l === 'uk' ? 'Українська' : 'English'}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
 
         {/* Engine Toggle */}
         <button

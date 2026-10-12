@@ -1,4 +1,4 @@
-export type Language = 'ru' | 'en';
+export type Language = 'ru' | 'en' | 'uk';
 
 export type AccountStatus = 'active' | 'spamblock' | 'banned' | 'warming' | 'cooldown' | 'proxy_error';
 

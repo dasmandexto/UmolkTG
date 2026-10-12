@@ -10,6 +10,7 @@ import {
 
 export const MobileBottomNav: React.FC = () => {
   const {
+    t,
     activeModule,
     setActiveModule,
     setIsMobileDrawerOpen,
@@ -23,26 +24,26 @@ export const MobileBottomNav: React.FC = () => {
   const tabs = [
     {
       id: 'dashboard',
-      label: 'Огляд',
+      label: t.navOverview,
       icon: LayoutDashboard,
       badge: null,
     },
     {
       id: 'accounts',
-      label: 'Акаунти',
+      label: t.navAccounts,
       icon: Users,
       badge: `${aliveAccounts}`,
     },
     {
       id: 'tasks',
-      label: 'Завдання',
+      label: t.navTasks,
       icon: ListTodo,
       badge: runningTasksCount > 0 ? `${runningTasksCount}` : null,
       highlightBadge: runningTasksCount > 0,
     },
     {
       id: 'dialer',
-      label: 'Дзвінки',
+      label: t.navDialer,
       icon: PhoneCall,
       badge: null,
     },
@@ -91,11 +92,11 @@ export const MobileBottomNav: React.FC = () => {
         <button
           onClick={() => setIsMobileDrawerOpen(true)}
           className="flex flex-col items-center justify-center h-full text-neutral-400 hover:text-white transition-colors"
-          title="Відкрити всі модулі"
+          title={t.navMenu}
         >
           <Menu className="w-5 h-5" />
           <span className="text-[10px] mt-1 font-medium">
-            Меню
+            {t.navMenu}
           </span>
         </button>
       </div>
