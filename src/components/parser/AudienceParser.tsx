@@ -21,6 +21,7 @@ export const AudienceParser: React.FC = () => {
     setTargetRecipientsText,
     setActiveModule,
     addLog,
+    runRealParser,
   } = useCombiner();
 
   const [targetChat, setTargetChat] = useState('@ton_community_chat');
@@ -34,72 +35,27 @@ export const AudienceParser: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState(0);
 
-  const handleStartParsing = () => {
+  const handleStartParsing = async () => {
     if (!targetChat.trim()) return;
 
     setIsParsing(true);
-    setParseProgress(15);
-    addLog('info', 'parser', `Инициализация подключения к донорскому чату ${targetChat} через MTProto`);
+    setParseProgress(20);
+    addLog('info', 'parser', `Підключення до донорського чату ${targetChat} через MTProto`);
 
-    setTimeout(() => {
-      setParseProgress(45);
-      addLog('info', 'parser', `Чат определен как Supergroup (ID: -100184910284). Сбор истории сообщений...`);
-    }, 900);
-
-    setTimeout(() => {
-      setParseProgress(80);
-      addLog('info', 'parser', `Фильтрация: исключение ботов, проверка наличия аватарок и даты последнего визита`);
-    }, 1800);
-
-    setTimeout(() => {
+    try {
+      setParseProgress(50);
+      await runRealParser(targetChat, 200, {
+        onlyWithUsername: onlyUsername,
+        excludeBots: excludeBots,
+        onlyPremium: onlyPremium,
+      });
       setParseProgress(100);
       setIsParsing(false);
-
-      const newFound: ParsedUser[] = [
-        {
-          id: `p-${Date.now()}-1`,
-          userId: '891048291',
-          username: 'ton_investor_alex',
-          firstName: 'Александр',
-          lastName: 'Медведев',
-          phone: '+7 915 391-**-**',
-          hasAvatar: true,
-          isPremium: true,
-          isBot: false,
-          lastSeen: 'был недавно',
-          bio: 'TON & DeFi developer, crypto enthusiast',
-          messagesInChat: 64,
-        },
-        {
-          id: `p-${Date.now()}-2`,
-          userId: '710294821',
-          username: 'kristina_arbitrage',
-          firstName: 'Кристина',
-          lastName: 'Новикова',
-          hasAvatar: true,
-          isPremium: false,
-          isBot: false,
-          lastSeen: 'был сегодня в 11:20',
-          bio: 'Арбитраж крипты, P2P связки',
-          messagesInChat: 28,
-        },
-        {
-          id: `p-${Date.now()}-3`,
-          userId: '601928471',
-          username: 'gleb_ton_founder',
-          firstName: 'Глеб',
-          hasAvatar: true,
-          isPremium: true,
-          isBot: false,
-          lastSeen: 'был недавно',
-          bio: 'Building Web3 Telegram Mini Apps',
-          messagesInChat: 92,
-        },
-      ];
-
-      setParsedUsers((prev) => [...newFound, ...prev]);
-      addLog('success', 'parser', `Парсинг успешно завершен! Собрано и отфильтровано +3 свежих контакта из ${targetChat}`);
-    }, 2600);
+    } catch (err: any) {
+      setIsParsing(false);
+      setParseProgress(0);
+      addLog('warn', 'parser', `Зауваження: ${err?.message || err}. Для парсингу переконайтеся, що додано хоча б 1 активний акаунт.`);
+    }
   };
 
   const handleExportTxt = () => {

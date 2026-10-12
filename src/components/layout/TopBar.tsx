@@ -14,6 +14,9 @@ export const TopBar: React.FC = () => {
     tasks,
     setIsMobileDrawerOpen,
     activeModule,
+    operatingMode,
+    setOperatingMode,
+    clearDemoDataAndEnableLive,
   } = useCombiner();
 
   const aliveProxies = proxies.filter((p) => p.status === 'alive').length;
@@ -70,8 +73,29 @@ export const TopBar: React.FC = () => {
         </div>
       </div>
 
-      {/* Zone 3: Primary actions & Language toggle */}
+      {/* Zone 3: Primary actions, Mode badge & Language toggle */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Operating Mode Indicator / Switcher */}
+        {operatingMode === 'live' ? (
+          <button
+            onClick={() => setOperatingMode('simulation')}
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded text-xs font-medium bg-emerald-950 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/40 transition-colors"
+            title="Реальний режим LIVE MTProto активний. Натисніть для перегляду демо-симуляції."
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-semibold text-[11px] sm:text-xs">LIVE MTProto</span>
+          </button>
+        ) : (
+          <button
+            onClick={clearDemoDataAndEnableLive}
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded text-xs font-medium bg-amber-950 text-amber-300 border border-amber-800/60 hover:bg-amber-900/50 transition-colors"
+            title="Зараз увімкнено демо-симуляцію. Натисніть, щоб очистити демо-дані та перейти у реальний режим (LIVE)!"
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span className="font-semibold text-[11px] sm:text-xs">ДЕМО ➔ Увімкнути LIVE</span>
+          </button>
+        )}
+
         {/* 3-Language segmented switch (RU / UK / EN) */}
         <div className="flex items-center bg-neutral-800/80 rounded-md p-0.5 border border-neutral-700/50 text-xs">
           <Globe className="w-3.5 h-3.5 text-neutral-400 ml-1.5 mr-1 shrink-0 hidden sm:inline" />

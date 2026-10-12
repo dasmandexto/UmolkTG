@@ -3,6 +3,15 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
+import {
+  loadStore,
+  saveStore,
+  checkAccountMTProto,
+  checkSpambotReal,
+  parseChatAudience,
+  sendDirectMessage,
+  testProxyLatency,
+} from './src/server/mtprotoEngine';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,6 +73,128 @@ app.post('/api/voip/tdata/inspect', (req, res) => {
     encryption: 'LocalKey AES-256-IGE',
     readyForVoIP: true,
   });
+});
+
+// ==========================================
+// REAL MTPROTO ENGINE & PERSISTENCE ROUTES
+// ==========================================
+
+// 1. System Mode & Status
+app.get('/api/system/mode', (req, res) => {
+  const store = loadStore();
+  res.json({
+    mode: store.operatingMode,
+    engine: 'UmolkTG Real MTProto Node.js Engine (GramJS)',
+    accountsCount: store.accounts.length,
+    proxiesCount: store.proxies.length,
+    tasksCount: store.tasks.length,
+  });
+});
+
+app.post('/api/system/mode', (req, res) => {
+  const { mode, clearDemo } = req.body;
+  const store = loadStore();
+
+  if (mode === 'live' || mode === 'simulation') {
+    store.operatingMode = mode;
+  }
+
+  if (clearDemo) {
+    store.accounts = [];
+    store.proxies = [];
+    store.tasks = [];
+    store.logs = [
+      {
+        id: `clear-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'warn',
+        module: 'system',
+        message: 'Демо-базу очищено. Увімкнено чистий режим для власних акаунтів (LIVE MTProto).',
+      },
+    ];
+  }
+
+  saveStore(store);
+  res.json({
+    success: true,
+    mode: store.operatingMode,
+    accountsCount: store.accounts.length,
+    message: `Режим змінено на: ${store.operatingMode.toUpperCase()}`,
+  });
+});
+
+// 2. Persistent Store Sync
+app.get('/api/store', (req, res) => {
+  const store = loadStore();
+  res.json(store);
+});
+
+app.post('/api/store', (req, res) => {
+  const incoming = req.body;
+  const current = loadStore();
+  const merged = { ...current, ...incoming };
+  saveStore(merged);
+  res.json({ success: true, savedAt: Date.now() });
+});
+
+// 3. Real MTProto Account Validation
+app.post('/api/accounts/check', async (req, res) => {
+  const { account } = req.body;
+  const store = loadStore();
+  const result = await checkAccountMTProto(
+    account,
+    parseInt(store.settings.apiId, 10),
+    store.settings.apiHash
+  );
+  res.json(result);
+});
+
+// 4. Real SpamBot Check
+app.post('/api/accounts/spambot', async (req, res) => {
+  const { account } = req.body;
+  const store = loadStore();
+  const result = await checkSpambotReal(
+    account,
+    parseInt(store.settings.apiId, 10),
+    store.settings.apiHash
+  );
+  res.json(result);
+});
+
+// 5. Real Chat Audience Parser
+app.post('/api/parser/run', async (req, res) => {
+  const { account, targetChat, limit, filters } = req.body;
+  const store = loadStore();
+  const result = await parseChatAudience(
+    account,
+    targetChat,
+    limit,
+    filters,
+    parseInt(store.settings.apiId, 10),
+    store.settings.apiHash
+  );
+  res.json(result);
+});
+
+// 6. Real Direct Message Sender
+app.post('/api/sender/send', async (req, res) => {
+  const { account, recipient, message } = req.body;
+  const store = loadStore();
+  const result = await sendDirectMessage(
+    account,
+    recipient,
+    message,
+    parseInt(store.settings.apiId, 10),
+    store.settings.apiHash
+  );
+  res.json(result);
+});
+
+// 7. Real Proxy Connection Latency Test
+app.post('/api/proxies/test', async (req, res) => {
+  const { host, port } = req.body;
+  const result = await testProxyLatency(host, parseInt(port, 10));
+  res.json(result);
 });
 
 // WebSocket VoIP Audio & Signaling Server
